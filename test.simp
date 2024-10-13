@@ -1,0 +1,12 @@
+let asd = 12.0;
+
+if asd >= 13 {
+    asd += 1;
+}
+
+while asd <= 10 {
+    if asd == 4 {
+        return "Kaktusz"
+    }
+    asd--;
+}
