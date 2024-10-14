@@ -6,7 +6,7 @@ if asd >= 13 {
 
 while asd <= 10 {
     if asd == 4 {
-        return "Kaktusz"
+        return "Kaktusz fa"
     }
     asd--;
 }

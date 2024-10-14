@@ -5,7 +5,7 @@
 pub struct Lexer<'a> {
     input: &'a str,
     index: usize,
-    next_index: usize
+    next_index: usize,
 }
 impl<'a> Lexer<'a> {
     fn expect(&mut self, character: char) -> bool{
@@ -18,6 +18,7 @@ impl<'a> Lexer<'a> {
         
         return false
     }
+    
     fn char_token(&mut self, token: Token<'a>) -> Option<Token<'a>> {
         self.index = self.next_index;
         return Some(token);
@@ -28,12 +29,15 @@ impl<'a> Lexer<'a> {
         Lexer {
             input: input,
             index: 0,
-            next_index: 0
+            next_index: 0,
         }
     }
     
 }
-#[derive(PartialEq, Debug)]
+/// This stores all the Tokens, that later will be parsed.
+/// To add a new Token, add it here, and then in State Machine of the next() function.
+/// If an identifier, it is enough to specify it in the Identifier state in the return.
+#[derive(PartialEq, Debug, Clone, Copy)]
 pub enum Token<'a> {
     ParenLeft,
     ParenRight,
@@ -48,7 +52,7 @@ pub enum Token<'a> {
     SemiColon, // Colon :DD
     BraceLeft,
     BraceRight,
-
+    EqualEqual,
 
     String(&'a str),
     Integer(i32),
@@ -60,6 +64,7 @@ pub enum Token<'a> {
     Minus,
     MinusEqual,
     Decrement,
+    Star,
 
     If,
     Else,
@@ -84,6 +89,7 @@ impl<'a> Iterator for Lexer<'a> {
     type Item = Token<'a>;
     
     fn next(&mut self) -> Option<Self::Item> {
+
         // Creates an iterator from the characters.
         let mut characters = self.input[self.index..].chars();
         let mut from_to = self.index;
@@ -156,6 +162,9 @@ impl<'a> Iterator for Lexer<'a> {
                         '!' => {
                             return self.char_token(Token::Bang)
                         },
+                        '=' if self.expect('=') => {
+                            return self.char_token(Token::EqualEqual)
+                        }
                         '=' => {
                             return self.char_token(Token::Equal)
                         },
@@ -168,7 +177,9 @@ impl<'a> Iterator for Lexer<'a> {
                         '}' => {
                             return self.char_token(Token::BraceRight)
                         },
-                        
+                        '*' => {
+                            return self.char_token(Token::Star)
+                        }
 
                         '0'..='9' => state = State::Integer,
                         '_' | 'A'..='Z' | 'a'..='z' => state = State::Identifier,
@@ -256,6 +267,20 @@ mod tests {
         assert_eq!(lexer.next(), Some(Token::Increment));
         assert_eq!(lexer.next(), Some(Token::Decrement));
         
+    }
+    #[test]
+    fn basic_operation() {
+        let mut lexer = Lexer::new("1 + 2 * 3 - 4");
+        assert_eq!(lexer.next().unwrap(), Token::Integer(1));
+        assert_eq!(lexer.next().unwrap(), Token::Plus);
+
+        assert_eq!(lexer.next().unwrap(), Token::Integer(2));
+        assert_eq!(lexer.next().unwrap(), Token::Star);
+
+        assert_eq!(lexer.next().unwrap(), Token::Integer(3));
+        assert_eq!(lexer.next().unwrap(), Token::Minus);
+
+        assert_eq!(lexer.next().unwrap(), Token::Integer(4));
     }
     #[test]
     fn string() {
