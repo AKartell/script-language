@@ -1,3 +1,6 @@
+use core::panic;
+use std::iter::Peekable;
+
 /// Input is the string that we need to Tokenize, basically the code.
 /// Index helps us keep track of each character, it is helpful at:
 ///     - Start of words.
@@ -39,8 +42,13 @@ impl<'a> Lexer<'a> {
 /// If an identifier, it is enough to specify it in the Identifier state in the return.
 #[derive(PartialEq, Debug, Clone, Copy)]
 pub enum Token<'a> {
+    /// (
     ParenLeft,
+    /// )
     ParenRight,
+    
+    BraceLeft,
+    BraceRight,
 
     GreatEqual,
     Great,
@@ -50,8 +58,6 @@ pub enum Token<'a> {
     Bang,
     BangEqual,
     SemiColon, // Colon :DD
-    BraceLeft,
-    BraceRight,
     EqualEqual,
 
     String(&'a str),
@@ -82,8 +88,41 @@ enum State {
     EndString,
     Identifier,
 }
-
-
+pub trait Check {
+    fn expect(&mut self, token: Token) -> bool;
+    fn maybe_expect(&mut self, token: Token) -> bool; 
+    fn panic_expect(&mut self, token: Token) -> bool;
+}
+impl<'a> Check for Peekable<Lexer<'a>> {
+    fn expect(&mut self, token: Token) -> bool {
+        match self.peek() {
+            Some(t) if *t == token => {
+                self.next();
+                true
+            },
+            _ => false
+        }
+    }
+    
+    fn maybe_expect(&mut self, token: Token) -> bool {
+        match self.peek() {
+            Some(t) if *t == token => {
+                true
+            },
+            _ => false
+        }
+    }
+    
+    fn panic_expect(&mut self, token: Token) -> bool {
+        match self.peek() {
+            Some(t) if *t == token => {
+                self.next();
+                true
+            },
+            _ => panic!("No {:?} was found!", token)
+        }
+    }
+}
 
 impl<'a> Iterator for Lexer<'a> {
     type Item = Token<'a>;

@@ -1,10 +1,10 @@
 use std::{fs, path::PathBuf};
-use clap::{command, Parser, Subcommand};
+use clap::{command, Subcommand};
 use lexer::{Lexer, Token};
 
 mod lexer;
 mod parse;
-#[derive(Parser, Debug)]
+#[derive(clap::Parser, Debug)]
 #[command(version, about, long_about = None)]
 struct Args {
     #[command(subcommand)]
@@ -17,12 +17,10 @@ enum Commands {
     Run { filename: PathBuf },
 }
 fn main() {
-    let parser = parse::Parser::new("");
-    let string = parser.parse();
-
-    println!("{}", string);
+    
+    println!("{}", parse::Parser::new("if () {}").parse());
     return;
-    let args = Args::parse();
+    let args = <Args as clap::Parser>::parse();
     
     match args.command {
         Commands::Tokenize { filename } => {
@@ -32,6 +30,6 @@ fn main() {
             }
             
         },
-        _ => todo!()
+        _ => println!("Semmi!")
     }
 }

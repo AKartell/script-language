@@ -10,6 +10,17 @@ impl<'a> Display for TokenTree<'a>{
                     write!(f, " {}", tree)?;
                 }
                 write!(f, ")")
+            },
+            TokenTree::If { condition, positive, negative } => {
+                write!(f, "(if")?;
+                write!(f, " {}", condition)?;
+                write!(f, " : {}", positive)?;
+                
+                if let Some(token_tree) = negative {
+                    write!(f, " ? {}", token_tree)?;
+                }
+                write!(f, ")")
+                
             }
         }
     }
@@ -20,6 +31,7 @@ impl Display for Operator {
             Operator::Minus => write!(f, "-"),
             Operator::Plus => write!(f, "+"),
             Operator::Star => write!(f, "*"),
+            Operator::Bang => write!(f, "!")
         }
     }
 }
@@ -29,7 +41,7 @@ impl<'a> Display for Atomic<'a> {
             Atomic::Float(num) => write!(f, "{}", num),
             Atomic::String(string) => write!(f, "{}", string),
             Atomic::Integer(num) => write!(f, "{}", num),
-            Atomic::Nil => write!(f, "Nil")
+            Atomic::Nil => write!(f, "()")
         }
     }
 }
