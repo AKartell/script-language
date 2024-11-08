@@ -4,6 +4,7 @@ use lexer::{Lexer, Token};
 
 mod lexer;
 mod parse;
+//mod evaluate;
 #[derive(clap::Parser, Debug)]
 #[command(version, about, long_about = None)]
 struct Args {
@@ -18,7 +19,7 @@ enum Commands {
 }
 fn main() {
     
-    println!("{}", parse::Parser::new("if () {}").parse());
+    println!("{}", parse::Parser::new("let asd = asd").parse());
     return;
     let args = <Args as clap::Parser>::parse();
     

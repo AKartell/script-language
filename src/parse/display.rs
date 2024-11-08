@@ -4,7 +4,7 @@ impl<'a> Display for TokenTree<'a>{
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             TokenTree::Atomic(atom) => write!(f, "{}", atom),
-            TokenTree::Expression(op, token_tree) => {
+            TokenTree::InfixExpression(op, token_tree) | TokenTree::PostfixExpression(op, token_tree) | TokenTree::PrefixExpression(op, token_tree) => {
                 write!(f, "({}", op)?;
                 for tree in token_tree {
                     write!(f, " {}", tree)?;
@@ -21,6 +21,11 @@ impl<'a> Display for TokenTree<'a>{
                 }
                 write!(f, ")")
                 
+            },
+            TokenTree::While { condition, body } => {
+                write!(f, "(while")?;
+                write!(f, " {}", condition)?;
+                write!(f, " : {}", body)
             }
         }
     }
@@ -31,7 +36,9 @@ impl Display for Operator {
             Operator::Minus => write!(f, "-"),
             Operator::Plus => write!(f, "+"),
             Operator::Star => write!(f, "*"),
-            Operator::Bang => write!(f, "!")
+            Operator::Bang => write!(f, "!"),
+            Operator::Let => write!(f, "let"),
+            Operator::Assign => write!(f, "=")
         }
     }
 }
@@ -41,7 +48,8 @@ impl<'a> Display for Atomic<'a> {
             Atomic::Float(num) => write!(f, "{}", num),
             Atomic::String(string) => write!(f, "{}", string),
             Atomic::Integer(num) => write!(f, "{}", num),
-            Atomic::Nil => write!(f, "()")
+            Atomic::Nil => write!(f, "()"),
+            Atomic::Identifier(name) => write!(f, "{}", name)
         }
     }
 }

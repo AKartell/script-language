@@ -5,24 +5,32 @@ use crate::lexer::{self, Check, Lexer, Token};
 pub struct Parser<'a> {
     lexer: Peekable<Lexer<'a>>
 }
+#[derive(Clone, Copy)]
 
-enum Operator {
+pub enum Operator {
     Minus,
     Plus,
     Star,
-    Bang
+    Bang,
+    Assign,
+    Let
 }
+#[derive(Clone, Copy)]
 
-enum Atomic<'a> {
+pub enum Atomic<'a> {
     Integer(i32),
     String(&'a str),
     Float(f32),
+    Identifier(&'a str),
     Nil
 }
+#[derive(Clone)]
 pub enum TokenTree<'a> {
     Atomic(Atomic<'a>),
     // [TokenTree; 2]????
-    Expression(Operator, Vec<TokenTree<'a>>),
+    InfixExpression(Operator, Vec<TokenTree<'a>>),
+    PostfixExpression(Operator, Vec<TokenTree<'a>>),
+    PrefixExpression(Operator, Vec<TokenTree<'a>>),
     If {
         // We have to store them on the Heap, 
         // because otherwise it has infinite size.
@@ -30,6 +38,10 @@ pub enum TokenTree<'a> {
         condition: Box<TokenTree<'a>>,
         positive: Box<TokenTree<'a>>,
         negative: Option<Box<TokenTree<'a>>>
+    },
+    While {
+        condition: Box<TokenTree<'a>>,
+        body: Box<TokenTree<'a>>
     }
 }
 impl<'a> Parser<'a> {
@@ -47,10 +59,21 @@ impl<'a> Parser<'a> {
         }
         else {
             let val = self.expression(0);
+            println!("cucc");
             self.lexer.panic_expect(token);
             val
         }
 
+    }
+    // 1 + (2 * 2 * 2) + 2
+    // 1 + 2 * (-2)
+    //    +
+    // 1     *
+    //     2    -
+    //          2
+    fn syntax(&mut self, left_side: Token, right_side: Token) -> TokenTree<'a> {
+        self.lexer.panic_expect(left_side);
+        self.expected_token_parse(right_side)
     }
     fn expression(&mut self, min_bp: u8) -> TokenTree<'a> {
         let token = match self.lexer.next() {
@@ -63,6 +86,7 @@ impl<'a> Parser<'a> {
             Token::Float(num) => TokenTree::Atomic(Atomic::Float(num)),
             Token::Integer(num) => TokenTree::Atomic(Atomic::Integer(num)),
             Token::String(string) => TokenTree::Atomic(Atomic::String(string)),
+            Token::Identifier(name) => TokenTree::Atomic(Atomic::Identifier(name)),
             Token::Plus | Token::Minus => {
                 let operator = match token {
                     Token::Plus => Operator::Plus,
@@ -72,28 +96,36 @@ impl<'a> Parser<'a> {
 
                 let ((), right_bp) = prefix_binding_power(&operator);
                 let rhs = self.expression(right_bp);
-                TokenTree::Expression(operator, vec![rhs])
+                TokenTree::PrefixExpression(operator, vec![rhs])
             },
             Token::ParenLeft => {
                 let lhs = self.expected_token_parse(Token::ParenRight);
                 lhs
             },
+            Token::Let => {
+                let lhs = self.expression(0);
+                TokenTree::PrefixExpression(Operator::Let, vec![lhs])
+            },
             Token::If => {
                 // We want to see a condition, and after that a block. Maybe an else, and another block.
                 let condition = self.expression(0);
-                self.lexer.panic_expect(Token::BraceLeft);
-                let positive = self.expected_token_parse(Token::BraceRight);
-                
+
+                let positive = self.syntax(Token::BraceLeft, Token::BraceRight);
 
                 let negative = if self.lexer.expect(Token::Else) {
-                    self.lexer.panic_expect(Token::BraceLeft);
-                    let val =self.expected_token_parse(Token::ParenRight);
+                    let val = self.syntax(Token::BraceLeft, Token::BraceRight);
                     Some(Box::new(val))
                 }
                 else {
                     None
                 };
                 TokenTree::If { condition: Box::new(condition), positive: Box::new(positive), negative: negative }
+            },
+            Token::While => {
+                let condition = self.expression(0);
+                let body = self.syntax(Token::BraceLeft, Token::BraceRight);
+
+                TokenTree::While { condition: Box::new(condition), body: Box::new(body) }
             }
             t => panic!("Bad token on left hand side. {:?}", t)
         };
@@ -111,7 +143,15 @@ impl<'a> Parser<'a> {
                 Token::Minus => Operator::Minus,
                 Token::Star => Operator::Star,
                 Token::Bang => Operator::Bang,
-                
+                Token::Equal => {
+                    if let TokenTree::Atomic(Atomic::Identifier(_)) = lhs {
+                        Operator::Assign
+                    }
+                    else {
+                        panic!("Left hand side is not an identifier!")
+                    }
+                    
+                },
                 t => {
                     println!("Unindetified operator: {:?}", t);
                     break;
@@ -132,7 +172,7 @@ impl<'a> Parser<'a> {
                 self.lexer.next();
                 
                 
-                lhs = TokenTree::Expression(operator, vec![lhs]);
+                lhs = TokenTree::PostfixExpression(operator, vec![lhs]);
                 continue;
             }
             if let Some((left_bp, right_bp)) = infix_binding_power(&operator) {
@@ -146,7 +186,7 @@ impl<'a> Parser<'a> {
                 // Short of Right Hand Side
                 let rhs = self.expression(right_bp);
                 
-                lhs = TokenTree::Expression(operator, vec![lhs, rhs]);
+                lhs = TokenTree::InfixExpression(operator, vec![lhs, rhs]);
                 continue;
             }
            break;
@@ -161,6 +201,7 @@ impl<'a> Parser<'a> {
 fn infix_binding_power(operator: &Operator) -> Option<(u8, u8)> {
     match operator {
         Operator::Minus | Operator::Plus => Some((1, 2)),
+        Operator::Assign => Some((0, 1)),
         Operator::Star => Some((3, 4)),
         _ => None
     }
@@ -172,6 +213,7 @@ fn prefix_binding_power(operator: &Operator) -> ((), u8) {
         _ => panic!("Bad prefix operator!")
     }
 }
+/// Operator only has one atomic neighbour to its left.
 fn postfix_binding_power(operator: &Operator) -> Option<(u8, ())>{
     match operator {
         Operator::Bang => Some((7, ())),
