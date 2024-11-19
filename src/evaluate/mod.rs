@@ -1,58 +1,102 @@
 pub struct Evaluator {
-    table: HashMap<String, Box<dyn Any>>
+    table: HashMap<String, Box<dyn Any>>,
 }
 use std::{any::Any, collections::HashMap, ops::Add};
 
-use crate::parse::*;
-
-struct Object<T> {
-    val: T
+use crate::parse::{self, *};
+mod operations;
+use operations::*;
+#[derive(Debug)]
+pub enum EvalErr {
+    CantAdd,
+    WrongType,
+    CantCompare
+}
+pub enum ValueTypes {
+    Float(f32),
+    Integer(i32),
+    String(String),
+    Boolean(bool),
 }
 
 impl Evaluator {
-    fn eval_if(tree: TokenTree){
-        if let TokenTree::If { condition, positive, negative } = tree {
-            
+    pub fn new() -> Evaluator{
+        Evaluator {
+            table: HashMap::new()
         }
     }
-    pub fn evaluate(&mut self, tree: TokenTree) -> Option<Box<dyn Any>>{
-        match TokenTree {
-            TokenTree::Atomic(val) => match val {
-                Atomic::Float(float) => return Some(Box::new(float)),
-                Atomic::Integer(integer) => return Some(Box::new(integer)),
-                Atomic::String(string) => return Some(Box::new(string)),
-                Atomic::Identifier(ident) => todo!(),
-                Atomic::Nil => None,
-                
-            },
+    fn eval_if(tree: TokenTree) {
+        if let TokenTree::If {
+            condition,
+            positive,
+            negative,
+        } = tree
+        {}
+    }
+    pub fn evaluate<'a>(&mut self, tree: TokenTree<'a>) -> Option<Atomic<'a>> {
+        //println!("{}", tree);
+        match tree {
+            TokenTree::Atomic(val) => return Some(val),
             TokenTree::InfixExpression(op, arr) => {
                 let lhs = self.evaluate(arr[0].clone())?;
                 let rhs = self.evaluate(arr[1].clone())?;
-                match op {
-                    Operator::Minus | Operator::Plus | Operator::Star => {
-                        let operation = match op {
-                            Operator::Minus => {
-                                |x|     
-                            }
-                        }
-                        let (left, right) = if let (Some(l), Some(r)) = (lhs.downcast_ref::<f32>(), rhs.downcast_ref::<f32>()) {
-                            (l, r)
-                        }
-                        else if let (Some(l), Some(r)) = (lhs.downcast_ref::<i32>(), rhs.downcast_ref::<i32>()) {
-                            (l, r)
-                        }
-                        else {
-                            panic!("Cannot add values of different or incompatible types.")
-                        }
-                        return Some(Box::new(left + right));
-                    },
-                    Operator::Assign => {
-                        todo!()
-                    }
+                let op_result = match op {
+                    Operator::Plus => add_together(lhs, rhs),
+                    Operator::Minus => sub_together(lhs, rhs),
+                    Operator::Star => mul_together(lhs, rhs),
+                    Operator::Slash => div_together(lhs, rhs),
+
+                    Operator::Less => less_than_together(lhs, rhs),
+                    Operator::LessOrEqual => lessequal_than_together(lhs, rhs),
+                    Operator::EqualEqual => equal_with_together(lhs, rhs),
+                    Operator::NotEqual => notequal_with_together(lhs, rhs),
+                    Operator::Greater => greater_than_together(lhs, rhs),
+                    Operator::GreaterOrEqual => greaterequal_than_together(lhs, rhs),
+
+                    Operator::And => and_together(lhs, rhs),
+                    Operator::Or => or_together(lhs, rhs),
+
+                    _ => unreachable!("This is all the possibilites.")
+                };
+                if let Ok(atomic) = op_result {
+                    return Some(atomic);
                 }
-                
-            }
-            
+                else if let Err(err) = op_result {
+                    panic!("{:?}", err);
+                }
+            },
+            TokenTree::PostfixExpression(op, arr) => {
+                let lhs = self.evaluate(arr[0].clone())?;
+                let op_result = match op {
+                    Operator::Bang => factor(lhs),
+                    _ => unreachable!("This is all the possibilites.")
+                };
+                if let Ok(atomic) = op_result {
+                    return Some(atomic);
+                }
+                else {
+                    panic!("TODO better error handling!")
+                }
+            },
+            TokenTree::PrefixExpression(op, arr) => {
+                let rhs = self.evaluate(arr[0].clone())?;
+                let op_result = match op {
+                    Operator::Plus => Ok(rhs),
+                    Operator::Minus => match rhs {
+                        Atomic::Float(float) => Ok(Atomic::Float(-float)),
+                        Atomic::Integer(integer) => Ok(Atomic::Integer(-integer)),
+                        _ => Err(EvalErr::WrongType)
+                    },
+                    _ => unreachable!("This is all the possibilites")
+                };
+                if let Ok(atomic) = op_result {
+                    return Some(atomic);
+                }
+                else {
+                    panic!("TODO better error handling!")
+                }
+            },
+            _ => todo!()
         };
         unreachable!("HOOOOOOOOL");
     }

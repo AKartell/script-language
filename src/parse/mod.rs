@@ -1,9 +1,9 @@
 use std::{fmt::Display, iter::Peekable, vec};
 mod display;
-use crate::lexer::{self, Check, Lexer, Token};
+use crate::lexer::{self, Check, Lexer, LexerError, Token, TokenType};
 /// Needed because of lifetime complications.
 pub struct Parser<'a> {
-    lexer: Peekable<Lexer<'a>>
+    lexer: Peekable<Lexer<'a>>,
 }
 #[derive(Clone, Copy)]
 
@@ -11,18 +11,31 @@ pub enum Operator {
     Minus,
     Plus,
     Star,
+    Slash,
     Bang,
     Assign,
-    Let
+
+    Greater,
+    GreaterOrEqual,
+    Less,
+    LessOrEqual,
+    EqualEqual,
+    NotEqual,
+
+    And,
+    Or,
+
+    Let,
 }
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug)]
 
 pub enum Atomic<'a> {
     Integer(i32),
     String(&'a str),
     Float(f32),
     Identifier(&'a str),
-    Nil
+    Boolean(bool),
+    Nil,
 }
 #[derive(Clone)]
 pub enum TokenTree<'a> {
@@ -32,38 +45,35 @@ pub enum TokenTree<'a> {
     PostfixExpression(Operator, Vec<TokenTree<'a>>),
     PrefixExpression(Operator, Vec<TokenTree<'a>>),
     If {
-        // We have to store them on the Heap, 
+        // We have to store them on the Heap,
         // because otherwise it has infinite size.
         // Something that we cannot store on the Stack.
         condition: Box<TokenTree<'a>>,
         positive: Box<TokenTree<'a>>,
-        negative: Option<Box<TokenTree<'a>>>
+        negative: Option<Box<TokenTree<'a>>>,
     },
     While {
         condition: Box<TokenTree<'a>>,
-        body: Box<TokenTree<'a>>
-    }
+        body: Box<TokenTree<'a>>,
+    },
 }
 impl<'a> Parser<'a> {
     pub fn new(input: &str) -> Parser {
         Parser {
-            lexer: Lexer::new(input).peekable()
+            lexer: Lexer::new(input).peekable(),
         }
     }
     pub fn parse(mut self) -> TokenTree<'a> {
-        self.expression( 0)
+        self.expression(0)
     }
-    fn expected_token_parse(&mut self, token: Token) -> TokenTree<'a> {
+    fn expected_token_parse(&mut self, token: TokenType) -> TokenTree<'a> {
         if self.lexer.expect(token) {
             TokenTree::Atomic(Atomic::Nil)
-        }
-        else {
+        } else {
             let val = self.expression(0);
-            println!("cucc");
             self.lexer.panic_expect(token);
             val
         }
-
     }
     // 1 + (2 * 2 * 2) + 2
     // 1 + 2 * (-2)
@@ -71,89 +81,107 @@ impl<'a> Parser<'a> {
     // 1     *
     //     2    -
     //          2
-    fn syntax(&mut self, left_side: Token, right_side: Token) -> TokenTree<'a> {
+    fn syntax(&mut self, left_side: TokenType, right_side: TokenType) -> TokenTree<'a> {
         self.lexer.panic_expect(left_side);
         self.expected_token_parse(right_side)
     }
     fn expression(&mut self, min_bp: u8) -> TokenTree<'a> {
         let token = match self.lexer.next() {
-            Some(token) => token,
-            None => return TokenTree::Atomic(Atomic::Nil)
+            Some(Ok(token)) => token,
+            Some(Err(error)) => return TokenTree::Atomic(Atomic::Nil),
+            None => return TokenTree::Atomic(Atomic::Nil),
         };
-        println!("{:?}", token);
+        //println!("{:?}", token.get_type());
         // Short for Left Hand Side.
-        let mut lhs: TokenTree = match token {
-            Token::Float(num) => TokenTree::Atomic(Atomic::Float(num)),
-            Token::Integer(num) => TokenTree::Atomic(Atomic::Integer(num)),
-            Token::String(string) => TokenTree::Atomic(Atomic::String(string)),
-            Token::Identifier(name) => TokenTree::Atomic(Atomic::Identifier(name)),
-            Token::Plus | Token::Minus => {
-                let operator = match token {
-                    Token::Plus => Operator::Plus,
-                    Token::Minus => Operator::Minus,
-                    _ => unreachable!("This is impossible to reach.")
+        let mut lhs: TokenTree = match token.token_type {
+            TokenType::Float(num) => TokenTree::Atomic(Atomic::Float(num)),
+            TokenType::Integer(num) => TokenTree::Atomic(Atomic::Integer(num)),
+            TokenType::String(string) => TokenTree::Atomic(Atomic::String(string)),
+            TokenType::Identifier(name) => TokenTree::Atomic(Atomic::Identifier(name)),
+            TokenType::True => TokenTree::Atomic(Atomic::Boolean(true)),
+            TokenType::False => TokenTree::Atomic(Atomic::Boolean(false)),
+            TokenType::Plus | TokenType::Minus => {
+                let operator = match token.get_type() {
+                    TokenType::Plus => Operator::Plus,
+                    TokenType::Minus => Operator::Minus,
+                    _ => unreachable!("This is impossible to reach."),
                 };
 
                 let ((), right_bp) = prefix_binding_power(&operator);
                 let rhs = self.expression(right_bp);
                 TokenTree::PrefixExpression(operator, vec![rhs])
-            },
-            Token::ParenLeft => {
-                let lhs = self.expected_token_parse(Token::ParenRight);
+            }
+            TokenType::ParenLeft => {
+                let lhs = self.expected_token_parse(TokenType::ParenRight);
                 lhs
-            },
-            Token::Let => {
+            }
+            TokenType::Let => {
                 let lhs = self.expression(0);
                 TokenTree::PrefixExpression(Operator::Let, vec![lhs])
-            },
-            Token::If => {
+            }
+            TokenType::If => {
                 // We want to see a condition, and after that a block. Maybe an else, and another block.
                 let condition = self.expression(0);
 
-                let positive = self.syntax(Token::BraceLeft, Token::BraceRight);
+                let positive = self.syntax(TokenType::BraceLeft, TokenType::BraceRight);
 
-                let negative = if self.lexer.expect(Token::Else) {
-                    let val = self.syntax(Token::BraceLeft, Token::BraceRight);
+                let negative = if self.lexer.expect(TokenType::Else) {
+                    let val = self.syntax(TokenType::BraceLeft, TokenType::BraceRight);
                     Some(Box::new(val))
-                }
-                else {
+                } else {
                     None
                 };
-                TokenTree::If { condition: Box::new(condition), positive: Box::new(positive), negative: negative }
-            },
-            Token::While => {
-                let condition = self.expression(0);
-                let body = self.syntax(Token::BraceLeft, Token::BraceRight);
-
-                TokenTree::While { condition: Box::new(condition), body: Box::new(body) }
+                TokenTree::If {
+                    condition: Box::new(condition),
+                    positive: Box::new(positive),
+                    negative: negative,
+                }
             }
-            t => panic!("Bad token on left hand side. {:?}", t)
+            TokenType::While => {
+                let condition = self.expression(0);
+                let body = self.syntax(TokenType::BraceLeft, TokenType::BraceRight);
+
+                TokenTree::While {
+                    condition: Box::new(condition),
+                    body: Box::new(body),
+                }
+            }
+            t => panic!("Bad token on left hand side. {:?}", t),
         };
-    
+
         loop {
             // We peek, because it is recursive.
             // If this fails, we go back to the parent, but that parent is still in a loop.
             // 4D chess.
-            let Some(token) = self.lexer.peek() else {
+            let Some(Ok(token)) = self.lexer.peek() else {
                 break;
             };
-            
-            let operator = match token {
-                Token::Plus => Operator::Plus,
-                Token::Minus => Operator::Minus,
-                Token::Star => Operator::Star,
-                Token::Bang => Operator::Bang,
-                Token::Equal => {
+
+            let operator = match token.get_type() {
+                TokenType::Plus => Operator::Plus,
+                TokenType::Minus => Operator::Minus,
+                TokenType::Star => Operator::Star,
+                TokenType::Bang => Operator::Bang,
+                TokenType::Slash => Operator::Slash,
+
+                TokenType::BangEqual => Operator::NotEqual,
+                TokenType::EqualEqual => Operator::EqualEqual,
+                TokenType::Great => Operator::Greater,
+                TokenType::GreatEqual => Operator::GreaterOrEqual,
+                TokenType::Less => Operator::Less,
+                TokenType::LessEqual => Operator::LessOrEqual,
+                TokenType::And => Operator::And,
+                TokenType::Or => Operator::Or,
+
+                TokenType::Equal => {
                     if let TokenTree::Atomic(Atomic::Identifier(_)) = lhs {
                         Operator::Assign
-                    }
-                    else {
+                    } else {
                         panic!("Left hand side is not an identifier!")
                     }
-                    
-                },
+                }
                 t => {
-                    println!("Unindetified operator: {:?}", t);
+                    //println!("Unidetified operator: {:?}", t);
                     break;
                 }
             };
@@ -170,8 +198,7 @@ impl<'a> Parser<'a> {
                 // We can now iterate, because we know that this specific Token checks out,
                 // so we can move down another layer and check if we can collapse.
                 self.lexer.next();
-                
-                
+
                 lhs = TokenTree::PostfixExpression(operator, vec![lhs]);
                 continue;
             }
@@ -182,49 +209,48 @@ impl<'a> Parser<'a> {
                 // We can now iterate, because we know that this specific Token checks out,
                 // so we can move down another layer and check if we can collapse.
                 self.lexer.next();
-    
+
                 // Short of Right Hand Side
                 let rhs = self.expression(right_bp);
-                
+
                 lhs = TokenTree::InfixExpression(operator, vec![lhs, rhs]);
                 continue;
             }
-           break;
-        };
-    
+            break;
+        }
+
         lhs
     }
-    
-    
 }
 /// Operator has two atomic neighbours.
 fn infix_binding_power(operator: &Operator) -> Option<(u8, u8)> {
     match operator {
-        Operator::Minus | Operator::Plus => Some((1, 2)),
-        Operator::Assign => Some((0, 1)),
-        Operator::Star => Some((3, 4)),
-        _ => None
+        Operator::Minus | Operator::Plus => Some((2, 3)),
+        Operator::Assign => Some((1, 2)),
+        Operator::Star | Operator::Slash => Some((4, 5)),
+        Operator::Less | Operator::LessOrEqual | Operator::Greater | Operator::GreaterOrEqual | Operator::NotEqual | Operator::EqualEqual => Some((1 , 2)),
+        Operator::And => Some((1, 2)),
+        Operator::Or => Some((0, 1)),
+        _ => None,
     }
 }
 /// Operator only has one atomic neighbour to its right.
 fn prefix_binding_power(operator: &Operator) -> ((), u8) {
     match operator {
         Operator::Plus | Operator::Minus => ((), 5),
-        _ => panic!("Bad prefix operator!")
+        _ => panic!("Bad prefix operator!"),
     }
 }
 /// Operator only has one atomic neighbour to its left.
-fn postfix_binding_power(operator: &Operator) -> Option<(u8, ())>{
+fn postfix_binding_power(operator: &Operator) -> Option<(u8, ())> {
     match operator {
         Operator::Bang => Some((7, ())),
-        _ => None
+        _ => None,
     }
 }
 #[cfg(test)]
-mod tests{
+mod tests {
     use crate::parse::Parser;
-
-    
 
     #[test]
     fn expression_print() {
